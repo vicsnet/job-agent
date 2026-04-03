@@ -1,9 +1,9 @@
 use reqwest::Client;
-use serde::{ Deserialize, Serialize };
+use serde::{ Deserialize, Serialize, de };
 
-use scraper::{ Html, Selector };
+use scraper::{ Html, Selector, ElementRef };
 use chrono::{ NaiveDate, DateTime, Utc, TimeZone };
-use tokio::time::{sleep, Duration};
+use tokio::time::{ sleep, Duration };
 
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -16,6 +16,7 @@ pub struct Job {
     pub posted_datetime: Option<DateTime<Utc>>,
     pub closing_date: String,
     pub link: String,
+    pub description: String,
 }
 
 // ---------------- DATE PARSER ----------------
@@ -32,6 +33,8 @@ pub async fn fetch_jobs(client: &Client, url: &str) -> Result<String, Box<dyn st
     let response = client
         .get(url)
         .header("User-Agent", "Mozilla/5.0 (compatible; JobAgent/1.0)")
+        .header("Accept", "text/html")
+    .header("Accept-Language", "en-GB,en;q=0.9")
         .send().await?;
 
     let status = response.status();
@@ -44,6 +47,65 @@ pub async fn fetch_jobs(client: &Client, url: &str) -> Result<String, Box<dyn st
     Ok(result)
 }
 
+// Extract job id to reduce duplicates job
+fn extract_job_id(link: &str) -> String {
+    link.split("/jobadvert/").nth(1).unwrap_or("").split("?").next().unwrap_or("").to_string()
+}
+
+// async fn fetch_job_description(
+//     // client: &Client,
+//     html: &str
+// ) -> Result<String, Box<dyn std::error::Error>> {
+//     // let html = fetch_jobs(client, url).await?;
+
+//     let document = Html::parse_document(&html);
+
+//     let selector = Selector::parse("#job_description_large").unwrap();
+
+//     let description = document
+//         .select(&selector)
+//         .next()
+//         .map(|el| el.text().collect::<Vec<_>>().join(""))
+//         .unwrap_or_else(|| "".to_string());
+// dbg!(description.clone());
+//     Ok(description)
+// }
+
+async fn fetch_job_description(html: &str)
+    -> String
+{
+    let document = Html::parse_document(html);
+
+     let selector = Selector::parse(&format!("#{}", "job_overview")).unwrap();
+
+    let Some(element) = document.select(&selector).next() else {
+        return String::new();
+    };
+
+    let mut texts: Vec<String> = vec![
+        element.text().collect::<Vec<_>>().join(" ").trim().to_string()
+    ];
+
+    // Walk siblings to collect content broken out by invalid <p> nesting
+    let mut node = element.next_sibling();
+    while let Some(sib) = node {
+        if let Some(el) = ElementRef::wrap(sib) {
+            // Stop when we hit the next section heading
+            if matches!(el.value().name(), "h1" | "h2" | "h3" | "h4") {
+                break;
+            }
+            let text = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
+            if !text.is_empty() {
+                texts.push(text);
+            }
+        }
+        node = sib.next_sibling();
+    }
+
+    texts.join("\n").trim().to_string()
+        
+   
+}
 // Extract the jobs from the nhs website
 pub fn extract_jobs(html: &str) -> Vec<Job> {
     let document = Html::parse_document(html);
@@ -111,6 +173,7 @@ pub fn extract_jobs(html: &str) -> Vec<Job> {
             posted_datetime,
             closing_date,
             link,
+            description: "".to_string(),
         });
     }
 
@@ -128,16 +191,33 @@ pub async fn fetch_all_jobs(
 
     loop {
         let paged_url = format!("{}&page={}", url, page);
+
         println!("Fetching page {}: {}", page, paged_url);
 
         let html = fetch_jobs(client, &paged_url).await?;
         let jobs = extract_jobs(&html);
 
         if jobs.is_empty() {
+            println!("No more jobs found, stopping.");
             break;
         }
 
-        all_jobs.extend(jobs);
+        // descritpion fetching
+
+        let mut filled_descriptions = Vec::new();
+
+        for mut job in jobs{
+            let desc_html = fetch_jobs(client, &job.link).await?;
+           
+            // getting description
+            let description = fetch_job_description(&desc_html).await;
+    
+            job.description = description;
+            // println!("Fetched description for job: {}", );
+            filled_descriptions.push(job);
+        }
+        // break;
+        all_jobs.extend(filled_descriptions);
         page += 1;
 
         if page > 5 {
@@ -149,8 +229,6 @@ pub async fn fetch_all_jobs(
     }
     Ok(all_jobs)
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -165,7 +243,5 @@ mod tests {
         assert!(!jobs.is_empty(), "Should fetch some jobs");
         dbg!("Fetched {} jobs", jobs.len());
         dbg!(&jobs);
-
-
     }
 }
