@@ -52,59 +52,45 @@ fn extract_job_id(link: &str) -> String {
     link.split("/jobadvert/").nth(1).unwrap_or("").split("?").next().unwrap_or("").to_string()
 }
 
-// async fn fetch_job_description(
-//     // client: &Client,
-//     html: &str
-// ) -> Result<String, Box<dyn std::error::Error>> {
-//     // let html = fetch_jobs(client, url).await?;
 
-//     let document = Html::parse_document(&html);
 
-//     let selector = Selector::parse("#job_description_large").unwrap();
-
-//     let description = document
-//         .select(&selector)
-//         .next()
-//         .map(|el| el.text().collect::<Vec<_>>().join(""))
-//         .unwrap_or_else(|| "".to_string());
-// dbg!(description.clone());
-//     Ok(description)
-// }
-
-async fn fetch_job_description(html: &str)
-    -> String
-{
+async fn fetch_job_description(html: &str) -> String {
     let document = Html::parse_document(html);
 
-     let selector = Selector::parse(&format!("#{}", "job_overview")).unwrap();
+    let container_selector = Selector::parse("main").unwrap();
 
-    let Some(element) = document.select(&selector).next() else {
+    let Some(container) = document.select(&container_selector).next() else {
         return String::new();
     };
 
-    let mut texts: Vec<String> = vec![
-        element.text().collect::<Vec<_>>().join(" ").trim().to_string()
-    ];
+    let mut result = String::new();
 
-    // Walk siblings to collect content broken out by invalid <p> nesting
-    let mut node = element.next_sibling();
-    while let Some(sib) = node {
-        if let Some(el) = ElementRef::wrap(sib) {
-            // Stop when we hit the next section heading
-            if matches!(el.value().name(), "h1" | "h2" | "h3" | "h4") {
-                break;
-            }
+    for node in container.descendants() {
+        if let Some(el) = ElementRef::wrap(node) {
+            let tag = el.value().name();
+
             let text = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
-            if !text.is_empty() {
-                texts.push(text);
+
+            if text.is_empty() {
+                continue;
+            }
+
+            match tag {
+                "h2" => {
+                    result.push_str(&format!("\n\n{}\n", text.to_uppercase()));
+                }
+                "p" => {
+                    result.push_str(&format!("{}\n", text));
+                }
+                "li" => {
+                    result.push_str(&format!("• {}\n", text));
+                }
+                _ => {}
             }
         }
-        node = sib.next_sibling();
     }
 
-    texts.join("\n").trim().to_string()
-        
-   
+    result.trim().to_string()
 }
 // Extract the jobs from the nhs website
 pub fn extract_jobs(html: &str) -> Vec<Job> {
@@ -213,6 +199,9 @@ pub async fn fetch_all_jobs(
             let description = fetch_job_description(&desc_html).await;
     
             job.description = description;
+
+            let job_id = extract_job_id(&job.link);
+            job.id = job_id;
             // println!("Fetched description for job: {}", );
             filled_descriptions.push(job);
         }
