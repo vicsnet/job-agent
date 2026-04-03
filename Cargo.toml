@@ -16,3 +16,4 @@ log = "0.4"
 env_logger = "0.9"
 scraper = "0.26.0"
 chrono = "0.4.44"
+sqlx = {    version = "0.8.6", features = ["postgres", "runtime-tokio", "chrono", "macros"] }

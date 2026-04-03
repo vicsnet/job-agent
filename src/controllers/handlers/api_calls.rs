@@ -4,6 +4,7 @@ use serde::{ Deserialize, Serialize, de };
 use scraper::{ Html, Selector, ElementRef };
 use chrono::{ NaiveDate, DateTime, Utc, TimeZone };
 use tokio::time::{ sleep, Duration };
+use sqlx::{PgPool, pool};
 
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -12,9 +13,8 @@ pub struct Job {
     pub organisation: String,
     pub location: String,
     pub salary: String,
-    pub posted_date_raw: String,
     pub posted_datetime: Option<DateTime<Utc>>,
-    pub closing_date: String,
+    pub closing_date: Option<DateTime<Utc>>,
     pub link: String,
     pub description: String,
 }
@@ -26,6 +26,36 @@ pub fn parse_nhs_date(date_str: &str) -> Option<DateTime<Utc>> {
     let naive = NaiveDate::parse_from_str(&cleaned, "%-d %B %Y").ok()?;
 
     Some(Utc.from_utc_datetime(&naive.and_hms_opt(0, 0, 0)?))
+}
+
+pub async fn save_job(pool: &PgPool, job: &Job) -> Result<(), sqlx::Error> {
+
+
+    sqlx::query(
+        r#"
+        INSERT INTO jobs (
+            id, title, organisation, location, salary,
+            posted_date, closing_date, link, description
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (id)
+        DO UPDATE SET
+            description = EXCLUDED.description
+        "#
+    )
+    .bind(&job.id)
+    .bind(&job.title)
+    .bind(&job.organisation)
+    .bind(&job.location)
+    .bind(&job.salary)
+    .bind(&job.posted_datetime)
+    .bind(&job.closing_date)
+    .bind(&job.link)
+    .bind(&job.description)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 // Fetch job Listing from nhs jobs website
@@ -149,15 +179,16 @@ pub fn extract_jobs(html: &str) -> Vec<Job> {
             .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
             .unwrap_or_default();
 
+        let closing_datetime = parse_nhs_date(&closing_date);
+
         jobs.push(Job {
             id,
             title,
             organisation,
             location,
             salary,
-            posted_date_raw: posted_raw,
             posted_datetime,
-            closing_date,
+            closing_date: closing_datetime,
             link,
             description: "".to_string(),
         });
@@ -168,7 +199,8 @@ pub fn extract_jobs(html: &str) -> Vec<Job> {
 
 pub async fn fetch_all_jobs(
     keyword: &str,
-    client: &Client
+    client: &Client,
+    pool: &PgPool
 ) -> Result<Vec<Job>, Box<dyn std::error::Error>> {
     let url = format!("https://www.jobs.nhs.uk/candidate/search/results?keyword={}", keyword);
 
@@ -203,6 +235,9 @@ pub async fn fetch_all_jobs(
             let job_id = extract_job_id(&job.link);
             job.id = job_id;
             // println!("Fetched description for job: {}", );
+            if let Err(e) = save_job(pool, &job).await {
+                println!("❌ DB error for {}: {}", &job.id, e);
+            }
             filled_descriptions.push(job);
         }
         // break;
@@ -227,8 +262,11 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_jobs() {
         let client = Client::new();
-
-        let jobs = fetch_all_jobs("nurse", &client).await.unwrap();
+          let pool = PgPool::connect("postgres://job_user:strongpassword@localhost/job_agent")
+        .await
+        .unwrap();
+    
+        let jobs = fetch_all_jobs("nurse", &client, &pool).await.unwrap();
         assert!(!jobs.is_empty(), "Should fetch some jobs");
         dbg!("Fetched {} jobs", jobs.len());
         dbg!(&jobs);
