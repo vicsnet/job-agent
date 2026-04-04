@@ -4,7 +4,9 @@ use serde::{ Deserialize, Serialize, de };
 use scraper::{ Html, Selector, ElementRef };
 use chrono::{ NaiveDate, DateTime, Utc, TimeZone };
 use tokio::time::{ sleep, Duration };
-use sqlx::{PgPool, pool};
+use sqlx::{ PgPool, pool };
+use crate::helpers::job_to_text::job_to_text;
+use crate::controllers::embedding::text_to_vec::get_embeddings;
 
 #[derive(Debug, Clone)]
 pub struct Job {
@@ -17,6 +19,7 @@ pub struct Job {
     pub closing_date: Option<DateTime<Utc>>,
     pub link: String,
     pub description: String,
+    pub embedding: Option<Vec<f32>>,
 }
 
 // ---------------- DATE PARSER ----------------
@@ -29,31 +32,30 @@ pub fn parse_nhs_date(date_str: &str) -> Option<DateTime<Utc>> {
 }
 
 pub async fn save_job(pool: &PgPool, job: &Job) -> Result<(), sqlx::Error> {
-
-
-    sqlx::query(
-        r#"
+    sqlx
+        ::query(
+            r#"
         INSERT INTO jobs (
             id, title, organisation, location, salary,
-            posted_date, closing_date, link, description
+            posted_date, closing_date, link, description, embedding
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         ON CONFLICT (id)
         DO UPDATE SET
             description = EXCLUDED.description
         "#
-    )
-    .bind(&job.id)
-    .bind(&job.title)
-    .bind(&job.organisation)
-    .bind(&job.location)
-    .bind(&job.salary)
-    .bind(&job.posted_datetime)
-    .bind(&job.closing_date)
-    .bind(&job.link)
-    .bind(&job.description)
-    .execute(pool)
-    .await?;
+        )
+        .bind(&job.id)
+        .bind(&job.title)
+        .bind(&job.organisation)
+        .bind(&job.location)
+        .bind(&job.salary)
+        .bind(&job.posted_datetime)
+        .bind(&job.closing_date)
+        .bind(&job.link)
+        .bind(&job.description)
+        .bind(&job.embedding)
+        .execute(pool).await?;
 
     Ok(())
 }
@@ -64,7 +66,7 @@ pub async fn fetch_jobs(client: &Client, url: &str) -> Result<String, Box<dyn st
         .get(url)
         .header("User-Agent", "Mozilla/5.0 (compatible; JobAgent/1.0)")
         .header("Accept", "text/html")
-    .header("Accept-Language", "en-GB,en;q=0.9")
+        .header("Accept-Language", "en-GB,en;q=0.9")
         .send().await?;
 
     let status = response.status();
@@ -81,8 +83,6 @@ pub async fn fetch_jobs(client: &Client, url: &str) -> Result<String, Box<dyn st
 fn extract_job_id(link: &str) -> String {
     link.split("/jobadvert/").nth(1).unwrap_or("").split("?").next().unwrap_or("").to_string()
 }
-
-
 
 async fn fetch_job_description(html: &str) -> String {
     let document = Html::parse_document(html);
@@ -191,6 +191,7 @@ pub fn extract_jobs(html: &str) -> Vec<Job> {
             closing_date: closing_datetime,
             link,
             description: "".to_string(),
+            embedding: None,
         });
     }
 
@@ -224,16 +225,28 @@ pub async fn fetch_all_jobs(
 
         let mut filled_descriptions = Vec::new();
 
-        for mut job in jobs{
+        for mut job in jobs {
             let desc_html = fetch_jobs(client, &job.link).await?;
-           
+
             // getting description
             let description = fetch_job_description(&desc_html).await;
-    
+
             job.description = description;
 
             let job_id = extract_job_id(&job.link);
             job.id = job_id;
+
+            let job_test = job_to_text(&job);
+
+            let job_description_vec = match get_embeddings(&job_test, client).await {
+                Ok(e) => e,
+                Err(err) => {
+                    println!("❌ Embedding failed for {}: {}", job.id, err);
+                    continue; // skip this job
+                }
+            };
+            job.embedding = Some(job_description_vec);
+
             // println!("Fetched description for job: {}", );
             if let Err(e) = save_job(pool, &job).await {
                 println!("❌ DB error for {}: {}", &job.id, e);
@@ -262,10 +275,10 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_jobs() {
         let client = Client::new();
-          let pool = PgPool::connect("postgres://job_user:strongpassword@localhost/job_agent")
-        .await
-        .unwrap();
-    
+        let pool = PgPool::connect(
+            "postgres://job_user:strongpassword@localhost/job_agent"
+        ).await.unwrap();
+
         let jobs = fetch_all_jobs("nurse", &client, &pool).await.unwrap();
         assert!(!jobs.is_empty(), "Should fetch some jobs");
         dbg!("Fetched {} jobs", jobs.len());

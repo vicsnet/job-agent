@@ -26,6 +26,10 @@ CREATE TABLE jobs (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+ALTER TABLE jobs ADD COLUMN embedding FLOAT[];
+
+DELETE FROM jobs - this cleans the database
+
 connection string 
 
 DATABASE_URL=postgres://job_user:strongpassword@localhost/job_agent
