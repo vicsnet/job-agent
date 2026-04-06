@@ -33,3 +33,11 @@ DELETE FROM jobs - this cleans the database
 connection string 
 
 DATABASE_URL=postgres://job_user:strongpassword@localhost/job_agent
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    telegram_id TEXT UNIQUE NOT NULL,
+    cv_text TEXT,
+    cv_embedding FLOAT8[],
+    created_at TIMESTAMP DEFAULT NOW()
+);
