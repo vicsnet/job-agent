@@ -14,8 +14,11 @@ pub async fn match_cv_to_jobs(
     cv_text: &str,
     pool: &PgPool,
     client: &Client
-) -> Result<MatchResponse, Box<dyn std::error::Error>> {
-    let cv_embedding = get_embeddings(cv_text, client).await?;
+) -> Result<MatchResponse, Box<dyn std::error::Error + Send + Sync>> {
+    let cv_embedding = get_embeddings(cv_text, client).await.map_err(|e| {
+        eprintln!("Error getting CV embedding: {}", e);
+        "Failed to get CV embedding"
+    })?;
 
     let all_jobs = sqlx
         ::query("SELECT id, title, description, location, organisation, salary, posted_date, closing_date, link, embedding FROM jobs WHERE embedding IS NOT NULL")
@@ -44,7 +47,7 @@ let job_embedding: Vec<f32> = job_embedding_f64
         let link = job.try_get("link")?;
 
         let score = check_similarity(&cv_embedding, &job_embedding);
-        if score > 0.7{
+        if score > 0.2{
             
             scored_jobs.push((score, Job{
                 id: id,

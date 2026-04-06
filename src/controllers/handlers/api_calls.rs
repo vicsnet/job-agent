@@ -1,10 +1,10 @@
 use reqwest::Client;
-use serde::{ Deserialize, Serialize, de };
+use serde::{ Deserialize, Serialize};
 
 use scraper::{ Html, Selector, ElementRef };
 use chrono::{ NaiveDate, DateTime, Utc, TimeZone };
 use tokio::time::{ sleep, Duration };
-use sqlx::{ PgPool, pool };
+use sqlx::{ PgPool };
 use crate::helpers::job_to_text::job_to_text;
 use crate::controllers::embedding::text_to_vec::get_embeddings;
 
