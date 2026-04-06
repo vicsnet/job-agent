@@ -11,6 +11,7 @@ pub struct User{
     pub cv_text: String,
     pub cv_embeddings: Vec<f32>,
     pub created_at: DateTime<Utc>,
+    pub state: String,
 }
 
 pub async fn create_user(pool: &PgPool, telegram_id: &str)->Result<(), sqlx::Error>{
@@ -62,6 +63,7 @@ pub async fn get_user_by_telegram_id(pool: &PgPool, telegram_id: &str) -> Result
             cv_text: row.try_get("cv_text")?,
             cv_embeddings: row.try_get("cv_embeddings")?,
             created_at: row.try_get("created_at")?,
+            state: row.try_get("state")?,
         }))
     } else {
         Ok(None)
