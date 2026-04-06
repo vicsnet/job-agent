@@ -279,7 +279,7 @@ mod tests {
             "postgres://job_user:strongpassword@localhost/job_agent"
         ).await.unwrap();
 
-        let jobs = fetch_all_jobs("nurse", &client, &pool).await.unwrap();
+        let jobs = fetch_all_jobs("project management", &client, &pool).await.unwrap();
         assert!(!jobs.is_empty(), "Should fetch some jobs");
         dbg!("Fetched {} jobs", jobs.len());
         dbg!(&jobs);
