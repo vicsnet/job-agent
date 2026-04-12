@@ -11,14 +11,15 @@ pub struct MatchResponse{
     pub message: Option<String>,
 }
 pub async fn match_cv_to_jobs(
-    cv_text: &str,
+    // cv_text: &str,
+    cv_embedding: Vec<f32>,
     pool: &PgPool,
     client: &Client
 ) -> Result<MatchResponse, Box<dyn std::error::Error + Send + Sync>> {
-    let cv_embedding = get_embeddings(cv_text, client).await.map_err(|e| {
-        eprintln!("Error getting CV embedding: {}", e);
-        "Failed to get CV embedding"
-    })?;
+    // let cv_embedding = get_embeddings(cv_text, client).await.map_err(|e| {
+    //     eprintln!("Error getting CV embedding: {}", e);
+    //     "Failed to get CV embedding"
+    // })?;
 
     let all_jobs = sqlx
         ::query("SELECT id, title, description, location, organisation, salary, posted_date, closing_date, link, embedding FROM jobs WHERE embedding IS NOT NULL")
@@ -136,7 +137,9 @@ Researchwork:Atmospheric Corrosion Mapping of the Federal University of Technolo
 REFERENCE(S) 
 Available on request
 ";
-        let result = match_cv_to_jobs(cv_text, &pool, &client).await;
+let cv_embedding = get_embeddings(cv_text, &client).await.unwrap();
+
+        let result = match_cv_to_jobs(cv_embedding, &pool, &client).await;
         assert!(result.is_ok());
         let scored_jobs = result.unwrap();
         dbg!("Scored Jobs: {}", scored_jobs);

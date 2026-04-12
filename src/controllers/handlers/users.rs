@@ -8,8 +8,8 @@ use crate::controllers::embedding::text_to_vec::get_embeddings;
 pub struct User{
     pub id: i32,
     pub telegram_id: String,
-    pub cv_text: String,
-    pub cv_embeddings: Vec<f32>,
+    pub cv_text: Option<String>,
+    pub cv_embedding: Option<Vec<f32>>,
     pub created_at: DateTime<Utc>,
     pub state: String,
 }
@@ -17,9 +17,10 @@ pub struct User{
 pub async fn create_user(pool: &PgPool, telegram_id: &str)->Result<(), sqlx::Error>{
 
     sqlx::query(
-        "INSERT INTO users (telegram_id) VALUES ($1) ON CONFLICT (telegram_id) DO NOTHING"
+        "INSERT INTO users (telegram_id, state) VALUES ($1, $2) ON CONFLICT (telegram_id) DO NOTHING"
     )
     .bind(telegram_id)
+    .bind("idle")
     .execute(pool)
     .await?;
 
@@ -51,17 +52,20 @@ pub async fn update_user_cv(pool: &PgPool, telegram_id: &str, cv_text: &str, cli
 
 
 pub async fn get_user_by_telegram_id(pool: &PgPool, telegram_id: &str) -> Result<Option<User>, sqlx::Error>{
-    let row = sqlx::query("SELECT id, telegram_id, cv_text, cv_embeddings, created_at FROM users WHERE telegram_id = $1")
+    let row = sqlx::query("SELECT id, telegram_id, cv_text, cv_embedding, created_at, state FROM users WHERE telegram_id = $1")
         .bind(telegram_id)
         .fetch_optional(pool)
         .await?;
-
+    
     if let Some(row) = row {
+        let cv_text: Option<String> = row.try_get("cv_text")?;
+    
+    let embedding: Option<Vec<f64>> = row.try_get("cv_embedding")?;
         Ok(Some(User{
             id: row.try_get("id")?,
             telegram_id: row.try_get("telegram_id")?,
-            cv_text: row.try_get("cv_text")?,
-            cv_embeddings: row.try_get("cv_embeddings")?,
+            cv_text: cv_text,
+            cv_embedding: embedding.map(|vec| vec.into_iter().map(|x| x as f32).collect()),
             created_at: row.try_get("created_at")?,
             state: row.try_get("state")?,
         }))

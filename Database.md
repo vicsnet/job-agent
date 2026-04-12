@@ -41,3 +41,4 @@ CREATE TABLE users (
     cv_embedding FLOAT8[],
     created_at TIMESTAMP DEFAULT NOW()
 );
+SELECT * FROM users LIMIT 10; 
