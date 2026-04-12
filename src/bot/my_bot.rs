@@ -39,6 +39,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                         .map(|s| !s.is_empty())
                         .unwrap_or(false);
                     if has_cv {
+                        println!("User {} has an existing CV, proceeding to job matching...", telegram_id);
                         bot.send_message(
                             msg.chat.id,
                             "🔍 Finding jobs based on your existing CV..."
@@ -48,10 +49,12 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                             let result = match_cv_to_jobs(
                                 cv_embedding,
                                 &pool,
+                                &telegram_id.as_str(),
                                 &client
                             ).await.map_err(|e| e.to_string());
                             send_job_results(&bot, msg.chat.id, result).await?;
                         } else {
+                            println!("No CV embedding found for user {}, prompting for CV update...", telegram_id);
                             bot.send_message(
                                 msg.chat.id,
                                 "⚠️ No CV embedding found. Please send /update_cv to re-upload your CV."
@@ -104,6 +107,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                     let result = match_cv_to_jobs(
                                 cv_embedding,
                                 &pool,
+                                &telegram_id.as_str(),
                                 &client
                             ).await.map_err(|e| e.to_string());
 
@@ -122,6 +126,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                               let result = match_cv_to_jobs(
                                 cv_embedding,
                                 &pool,
+                                telegram_id.as_str(),
                                 &client
                             ).await.map_err(|e| e.to_string());
                             send_job_results(&bot, msg.chat.id, result).await?;

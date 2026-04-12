@@ -1,12 +1,13 @@
 use crate::controllers::handlers::api_calls::Job;
 use crate::controllers::embedding::text_to_vec::get_embeddings;
 use crate::helpers::similarities::check_similarity;
+use crate::controllers::handlers::users::{ get_already_sent_jobs, save_user_job };
 
 use sqlx::{ PgPool, Row };
 use reqwest::Client;
 
 #[derive(Debug)]
-pub struct MatchResponse{
+pub struct MatchResponse {
     pub jobs: Vec<(f32, Job)>,
     pub message: Option<String>,
 }
@@ -14,92 +15,98 @@ pub async fn match_cv_to_jobs(
     // cv_text: &str,
     cv_embedding: Vec<f32>,
     pool: &PgPool,
-    client: &Client
+    telegram_id: &str,
+    _client: &Client
 ) -> Result<MatchResponse, Box<dyn std::error::Error + Send + Sync>> {
-    // let cv_embedding = get_embeddings(cv_text, client).await.map_err(|e| {
-    //     eprintln!("Error getting CV embedding: {}", e);
-    //     "Failed to get CV embedding"
-    // })?;
-
+ 
+    
     let all_jobs = sqlx
-        ::query("SELECT id, title, description, location, organisation, salary, posted_date, closing_date, link, embedding FROM jobs WHERE embedding IS NOT NULL")
-        .fetch_all(pool)
-        .await?;
+    ::query(
+        "SELECT id, title, description, location, organisation, salary, posted_date, closing_date, link, embedding FROM jobs WHERE embedding IS NOT NULL"
+    )
+    .fetch_all(pool).await?;
 
-    let mut scored_jobs = Vec::new();
+let mut scored_jobs = Vec::new();
 
-    for job in all_jobs{
-        let job_embedding_f64: Vec<f64> = job.try_get("embedding")?;
-
-let job_embedding: Vec<f32> = job_embedding_f64
+for job in all_jobs {
+    let job_embedding_f64: Vec<f64> = job.try_get("embedding")?;
+    
+    let job_embedding: Vec<f32> = job_embedding_f64
     .into_iter()
     .map(|x| x as f32)
     .collect();
 
+let id: &str = job.try_get("id")?;
 
-        let id = job.try_get("id")?;
-        let title = job.try_get("title")?;
-        // let description = job.try_get("description")?;
-        let location = job.try_get("location")?;
-        let organisation = job.try_get("organisation")?;
-        let salary = job.try_get("salary")?;
-        let posted_datetime = job.try_get("posted_date")?;
-        let closing_date = job.try_get("closing_date")?;
-        let link = job.try_get("link")?;
+let already_sent = get_already_sent_jobs(pool, telegram_id, id).await?;
 
-        let score = check_similarity(&cv_embedding, &job_embedding);
-        if score > 0.2{
-            
-            scored_jobs.push((score, Job{
-                id: id,
-                title: title,
-                organisation: organisation,
-                location: location,
-                salary: salary,
-                posted_datetime: posted_datetime,
-                closing_date: closing_date,
-                link: link,
-                description: "".to_string(),
-                embedding: None,
-            }));
+if already_sent {
+   
+    continue; // Skip jobs that have already been sent to the user
+}
+
+let title = job.try_get("title")?;
+// let description = job.try_get("description")?;
+let location = job.try_get("location")?;
+let organisation = job.try_get("organisation")?;
+let salary = job.try_get("salary")?;
+let posted_datetime = job.try_get("posted_date")?;
+let closing_date = job.try_get("closing_date")?;
+let link = job.try_get("link")?;
+
+let score = check_similarity(&cv_embedding, &job_embedding);
+if score > 0.2 {
+    scored_jobs.push((
+                score,
+                Job {
+                    id: id.to_string(),
+                    title: title,
+                    organisation: organisation,
+                    location: location,
+                    salary: salary,
+                    posted_datetime: posted_datetime,
+                    closing_date: closing_date,
+                    link: link,
+                    description: "".to_string(),
+                    embedding: None,
+                },
+            ));
         }
-
-
     }
-    
+
     scored_jobs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
-    let top_jobs: Vec<(f32, Job)> = scored_jobs.into_iter().take(5).collect();
+    let top_jobs: Vec<(f32, Job)> = scored_jobs.into_iter().take(1).collect();
 
-
-
-   if top_jobs.is_empty() {
+    if top_jobs.is_empty() {
         Ok(MatchResponse {
             jobs: vec![],
-            message: Some(
-                "No strong matches found. Try improving your CV or using"
-                    .to_string()
-            ),
+            message: Some("No strong matches found. Try improving your CV or using".to_string()),
         })
     } else {
+        if let Some((_, job)) = top_jobs.first() {
+            save_user_job(pool, telegram_id, &job.id).await?;
+        }
         Ok(MatchResponse {
             jobs: top_jobs,
             message: None,
         })
     }
-  
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;   
-    
+    use super::*;
+
     #[tokio::test]
     async fn test_match_cv_to_jobs() {
-        let pool = PgPool::connect("postgres://job_user:strongpassword@localhost/job_agent").await.unwrap();
+        let pool = PgPool::connect(
+            "postgres://job_user:strongpassword@localhost/job_agent"
+        ).await.unwrap();
         let client = Client::new();
 
-        let cv_text = "VINCENT ADEBISI ADESANMI
+        let cv_text =
+            "VINCENT ADEBISI ADESANMI
 +4407979295249 | Birmingham | Gmail 
 PROFESSIONAL SUMMARY
 _______________________________________________________________________________________________
@@ -137,13 +144,12 @@ Researchwork:Atmospheric Corrosion Mapping of the Federal University of Technolo
 REFERENCE(S) 
 Available on request
 ";
-let cv_embedding = get_embeddings(cv_text, &client).await.unwrap();
+        let cv_embedding = get_embeddings(cv_text, &client).await.unwrap();
+        let telegram_id = "1234567890";
 
-        let result = match_cv_to_jobs(cv_embedding, &pool, &client).await;
+        let result = match_cv_to_jobs(cv_embedding, &pool, telegram_id, &client).await;
         assert!(result.is_ok());
         let scored_jobs = result.unwrap();
         dbg!("Scored Jobs: {}", scored_jobs);
-
     }
-
 }

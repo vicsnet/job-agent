@@ -42,3 +42,17 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT NOW()
 );
 SELECT * FROM users LIMIT 10; 
+
+CREATE TABLE user_sent_jobs (
+    id SERIAL PRIMARY KEY,
+    telegram_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    sent_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(telegram_id, job_id)
+);
+
+\dt
+
+ALTER SEQUENCE user_sent_jobs_id_seq OWNER TO job_user;
+
+ALTER TABLE user_sent_jobs OWNER TO job_user;

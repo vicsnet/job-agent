@@ -85,3 +85,29 @@ pub async fn update_user_state(pool: &PgPool, telegram_id: &str, state: &str) ->
     // Placeholder for the actual implementation
     Ok(())
 }
+
+// sasving jobs id
+
+pub async fn save_user_job(pool: &PgPool, telegram_id: &str, job_id: &str) -> Result<(), sqlx::Error>{
+    sqlx::query(
+        "INSERT INTO user_sent_jobs (telegram_id, job_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+    )
+    .bind(telegram_id)
+    .bind(job_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_already_sent_jobs(pool: &PgPool, telegram_id: &str, job_id:&str) -> Result<bool, sqlx::Error>{
+
+    let result = sqlx::query(
+        "SELECT 1 FROM user_sent_jobs WHERE telegram_id = $1 AND job_id = $2"
+    )
+    .bind(telegram_id)
+    .bind(job_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(result.is_some())
+}
