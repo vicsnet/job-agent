@@ -122,6 +122,10 @@ async fn fetch_job_description(html: &str) -> String {
 
     result.trim().to_string()
 }
+
+async fn fetch_job_person_specification(html: &str) -> String{
+    "hello".to_string()
+}
 // Extract the jobs from the nhs website
 pub fn extract_jobs(html: &str) -> Vec<Job> {
     let document = Html::parse_document(html);
@@ -230,6 +234,7 @@ pub async fn fetch_all_jobs(
 
             // getting description
             let description = fetch_job_description(&desc_html).await;
+         
 
             job.description = description;
 

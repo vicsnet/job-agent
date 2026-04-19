@@ -11,6 +11,7 @@ use crate::controllers::handlers::users::{
     update_user_state,
     get_user_by_telegram_id,
 };
+// use crate::controllers::handlers::open_ai::generate_supporting_statement;
 
 pub async fn run_bot(pool: PgPool, client: Client) {
     dotenv().ok();
@@ -32,6 +33,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
 
                 let existing_user = get_user_by_telegram_id(&pool, &telegram_id).await.unwrap();
                 let user = existing_user.unwrap();
+                let cv_text = user.cv_text.clone().unwrap_or_default();
 
                 if text == "/start" {
                     let has_cv = user.cv_text
@@ -39,7 +41,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                         .map(|s| !s.is_empty())
                         .unwrap_or(false);
                     if has_cv {
-                        println!("User {} has an existing CV, proceeding to job matching...", telegram_id);
+                     
                         bot.send_message(
                             msg.chat.id,
                             "🔍 Finding jobs based on your existing CV..."
@@ -47,12 +49,15 @@ pub async fn run_bot(pool: PgPool, client: Client) {
 
                         if let Some(cv_embedding) = user.cv_embedding {
                             let result = match_cv_to_jobs(
+                                &cv_text,
                                 cv_embedding,
                                 &pool,
                                 &telegram_id.as_str(),
                                 &client
                             ).await.map_err(|e| e.to_string());
-                            send_job_results(&bot, msg.chat.id, result).await?;
+                        
+                            //  println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
+                            send_job_results(&bot, msg.chat.id, &result).await?;
                         } else {
                             println!("No CV embedding found for user {}, prompting for CV update...", telegram_id);
                             bot.send_message(
@@ -103,15 +108,18 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                     bot.send_message(msg.chat.id, "✅ CV saved! Finding jobs...").await?;
 
                    
-
+                    
                     let result = match_cv_to_jobs(
+                                &cv_text,
                                 cv_embedding,
                                 &pool,
                                 &telegram_id.as_str(),
                                 &client
                             ).await.map_err(|e| e.to_string());
+                            //  println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
 
-                    send_job_results(&bot, msg.chat.id, result).await?;
+                    send_job_results(&bot, msg.chat.id, &result).await?;
+                                // let perssonalised_statement = generate_supporting_statement(cv_text, &job.description, client);
                 }
 
                 if let Some(cv_text) = user.cv_text {
@@ -122,14 +130,17 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                         ).await?;
 
                         if let Some(cv_embedding) = user.cv_embedding {
+                            // println!("my cv3 {}", user.cv_text.as_ref().unwrap_or(&"No CV text".to_string()));
                             
                               let result = match_cv_to_jobs(
+                                &cv_text,
                                 cv_embedding,
                                 &pool,
                                 telegram_id.as_str(),
                                 &client
                             ).await.map_err(|e| e.to_string());
-                            send_job_results(&bot, msg.chat.id, result).await?;
+                            // println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
+                            send_job_results(&bot, msg.chat.id, &result).await?;
                         }
                     }
                 }
@@ -139,31 +150,125 @@ pub async fn run_bot(pool: PgPool, client: Client) {
     }).await;
 }
 
+
+// async fn send_job_results(
+//     bot: &Bot,
+//     chat_id: ChatId,
+//     result: &Result<crate::controllers::handlers::job_matching::MatchResponse, String>
+// ) -> Result<(), teloxide::RequestError> {
+//     match result {
+//         Ok(response) => {
+//             if response.jobs.is_empty() {
+//                 bot.send_message(
+//                     chat_id,
+//                     "No matching jobs found. Try updating your CV or check back later!"
+//                 ).await?;
+//             } else {
+              
+//                 let mut reply = String::from("Here are some job matches for you:\n\n\n");
+//                 for (score, job) in response.jobs.iter() {
+//                     reply.push_str(&format!("• {} ({:.2})\n{}\n\n\n", job.title, score, job.link));
+//                 }
+//                 if let Some(message) = &response.message {
+//                     println!("{}", message);
+//                     reply.push_str(&format!("Personalised Statement:\n{}\n", message));
+//                 }
+//                 // reply.push_str(&format!("\n\n{}", response.message.as_ref().unwrap_or(&"No message".to_string())));
+
+//                 //   println!("{}", response.message.as_ref().unwrap_or(&"No message".to_string()));
+//                 bot.send_message(chat_id, reply).await?;
+//             }
+//         }
+//         Err(_) => {
+//             bot.send_message(
+//                 chat_id,
+//                 "❌ An error occurred while processing your CV. Please try again later."
+//             ).await?;
+//         }
+//     }
+
+//     Ok(())
+// }
+
+
 async fn send_job_results(
     bot: &Bot,
     chat_id: ChatId,
-    result: Result<crate::controllers::handlers::job_matching::MatchResponse, String>
+    result: &Result<crate::controllers::handlers::job_matching::MatchResponse, String>,
 ) -> Result<(), teloxide::RequestError> {
     match result {
         Ok(response) => {
+            // No jobs case
             if response.jobs.is_empty() {
                 bot.send_message(
                     chat_id,
-                    "No matching jobs found. Try updating your CV or check back later!"
-                ).await?;
-            } else {
-                let mut reply = String::from("Here are some job matches for you:\n\n");
-                for (score, job) in response.jobs.iter() {
-                    reply.push_str(&format!("• {} ({:.2})\n{}\n\n", job.title, score, job.link));
+                    "No matching jobs found. Try updating your CV or check back later!",
+                )
+                .await?;
+                return Ok(());
+            }
+
+            const MAX_LEN: usize = 4000;
+
+            // Build messages safely (chunking)
+            let mut messages: Vec<String> = Vec::new();
+            let mut current = String::from("Here are some job matches for you:\n\n");
+
+            for (score, job) in &response.jobs {
+                let entry = format!(
+                    "• {} ({:.2})\n{}\n\n",
+                    job.title,
+                    score,
+                    job.link
+                );
+
+                // If adding this exceeds Telegram limit, push current chunk
+                if current.len() + entry.len() > MAX_LEN {
+                    messages.push(current);
+                    current = String::new();
                 }
-                bot.send_message(chat_id, reply).await?;
+
+                current.push_str(&entry);
+            }
+
+            if !current.is_empty() {
+                messages.push(current);
+            }
+
+            // Send job messages
+            for msg in messages {
+                bot.send_message(chat_id, msg).await?;
+            }
+
+            // Send personalised statement separately (safer + cleaner UX)
+            if let Some(statement) = &response.message {
+                println!("Generated statement: {}", statement);
+
+                bot.send_message(chat_id, "📝 Personalised Supporting Statement:")
+                    .await?;
+
+                // Chunk statement too (LLMs can be long)
+                let mut start = 0;
+                let chars: Vec<char> = statement.chars().collect();
+
+                while start < chars.len() {
+                    let end = (start + MAX_LEN).min(chars.len());
+                    let chunk: String = chars[start..end].iter().collect();
+
+                    bot.send_message(chat_id, chunk).await?;
+                    start = end;
+                }
             }
         }
-        Err(_) => {
+
+        Err(e) => {
+            eprintln!("Error in send_job_results: {}", e);
+
             bot.send_message(
                 chat_id,
-                "❌ An error occurred while processing your CV. Please try again later."
-            ).await?;
+                "❌ An error occurred while processing your CV. Please try again later.",
+            )
+            .await?;
         }
     }
 

@@ -2,6 +2,7 @@ use crate::controllers::handlers::api_calls::Job;
 use crate::controllers::embedding::text_to_vec::get_embeddings;
 use crate::helpers::similarities::check_similarity;
 use crate::controllers::handlers::users::{ get_already_sent_jobs, save_user_job };
+use crate::controllers::handlers::open_ai::generate_supporting_statement;
 
 use sqlx::{ PgPool, Row };
 use reqwest::Client;
@@ -12,11 +13,11 @@ pub struct MatchResponse {
     pub message: Option<String>,
 }
 pub async fn match_cv_to_jobs(
-    // cv_text: &str,
+    cv_text: &str,
     cv_embedding: Vec<f32>,
     pool: &PgPool,
     telegram_id: &str,
-    _client: &Client
+    client: &Client
 ) -> Result<MatchResponse, Box<dyn std::error::Error + Send + Sync>> {
  
     
@@ -53,6 +54,7 @@ let salary = job.try_get("salary")?;
 let posted_datetime = job.try_get("posted_date")?;
 let closing_date = job.try_get("closing_date")?;
 let link = job.try_get("link")?;
+let description = job.try_get("description")?;
 
 let score = check_similarity(&cv_embedding, &job_embedding);
 if score > 0.2 {
@@ -67,7 +69,7 @@ if score > 0.2 {
                     posted_datetime: posted_datetime,
                     closing_date: closing_date,
                     link: link,
-                    description: "".to_string(),
+                    description: description,
                     embedding: None,
                 },
             ));
@@ -84,12 +86,16 @@ if score > 0.2 {
             message: Some("No strong matches found. Try improving your CV or using".to_string()),
         })
     } else {
+        let mut personalised_statement = String::new();
+
         if let Some((_, job)) = top_jobs.first() {
+     
             save_user_job(pool, telegram_id, &job.id).await?;
+            personalised_statement = generate_supporting_statement(cv_text, &job.description, client).await.unwrap();
         }
         Ok(MatchResponse {
             jobs: top_jobs,
-            message: None,
+            message: Some(personalised_statement),
         })
     }
 }
@@ -147,7 +153,7 @@ Available on request
         let cv_embedding = get_embeddings(cv_text, &client).await.unwrap();
         let telegram_id = "1234567890";
 
-        let result = match_cv_to_jobs(cv_embedding, &pool, telegram_id, &client).await;
+        let result = match_cv_to_jobs(cv_text,cv_embedding, &pool, telegram_id, &client).await;
         assert!(result.is_ok());
         let scored_jobs = result.unwrap();
         dbg!("Scored Jobs: {}", scored_jobs);
