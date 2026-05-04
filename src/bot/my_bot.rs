@@ -1,4 +1,4 @@
-use teloxide::{ prelude::*, types::User };
+use teloxide::{ prelude::* };
 use dotenvy::dotenv;
 use crate::controllers::handlers::{ job_matching::match_cv_to_jobs };
 use crate::controllers::embedding::text_to_vec::get_embeddings;
@@ -6,11 +6,29 @@ use crate::controllers::embedding::text_to_vec::get_embeddings;
 use sqlx::PgPool;
 use reqwest::Client;
 use crate::controllers::handlers::users::{
+    User,
     create_user,
     update_user_cv,
     update_user_state,
     get_user_by_telegram_id,
+    get_plan_limits,
+    reset_daily_requests,
+    update_user_request_count,
 };
+
+// check if user can proceed with request based on plan limits
+
+async fn can_user_proceed(user: &User) -> bool {
+    let user_plan = &user.subscription_status;
+
+    let limits = get_plan_limits(user_plan).await;
+
+    match limits.daily_limit {
+        Some(limit) => user.daily_requests < limit,
+        None => true,
+    }
+}
+
 // use crate::controllers::handlers::open_ai::generate_supporting_statement;
 
 pub async fn run_bot(pool: PgPool, client: Client) {
@@ -32,16 +50,31 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                 });
 
                 let existing_user = get_user_by_telegram_id(&pool, &telegram_id).await.unwrap();
+
                 let user = existing_user.unwrap();
-                let cv_text = user.cv_text.clone().unwrap_or_default();
+
+                // Reset daily requests if it's a new day
+                reset_daily_requests(&pool, &user).await.unwrap_or_else(|e| {
+                    println!("Error resetting daily requests: {}", e);
+                });
+
+                let cv_text = user.cv_text.as_deref().unwrap_or_default();
 
                 if text == "/start" {
                     let has_cv = user.cv_text
                         .as_deref()
                         .map(|s| !s.is_empty())
                         .unwrap_or(false);
+
                     if has_cv {
-                     
+                        if !can_user_proceed(&user).await {
+                            bot.send_message(
+                                msg.chat.id,
+                                "⚠️ You've reached your daily request limit. Please try again tomorrow or consider upgrading your plan."
+                            ).await?;
+                            return Ok(());
+                        }
+
                         bot.send_message(
                             msg.chat.id,
                             "🔍 Finding jobs based on your existing CV..."
@@ -55,9 +88,16 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                                 &telegram_id.as_str(),
                                 &client
                             ).await.map_err(|e| e.to_string());
-                        
+
                             //  println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
                             send_job_results(&bot, msg.chat.id, &result).await?;
+
+                            // update request count
+                            update_user_request_count(&pool, &telegram_id).await.unwrap_or_else(
+                                |e| {
+                                    println!("Error updating user request count: {}", e);
+                                }
+                            );
                         } else {
                             println!("No CV embedding found for user {}, prompting for CV update...", telegram_id);
                             bot.send_message(
@@ -81,6 +121,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                     update_user_state(&pool, &telegram_id, "awaiting_cv").await.unwrap_or_else(|e| {
                         eprintln!("Error updating user state: {}", e);
                     });
+
                     bot.send_message(
                         msg.chat.id,
                         "📝 Please send me your new CV and I'll update it."
@@ -107,23 +148,47 @@ pub async fn run_bot(pool: PgPool, client: Client) {
 
                     bot.send_message(msg.chat.id, "✅ CV saved! Finding jobs...").await?;
 
-                   
-                    
+                    // check limits before proceeding with job matching
+                    if !can_user_proceed(&user).await {
+                        bot.send_message(
+                            msg.chat.id,
+                            "⚠️ You've reached your daily request limit. Please try again tomorrow or consider upgrading your plan."
+                        ).await?;
+                        return Ok(());
+                    }
+
                     let result = match_cv_to_jobs(
-                                &cv_text,
-                                cv_embedding,
-                                &pool,
-                                &telegram_id.as_str(),
-                                &client
-                            ).await.map_err(|e| e.to_string());
-                            //  println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
+                        &cv_text,
+                        cv_embedding,
+                        &pool,
+                        &telegram_id.as_str(),
+                        &client
+                    ).await.map_err(|e| e.to_string());
+                    //  println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
 
                     send_job_results(&bot, msg.chat.id, &result).await?;
-                                // let perssonalised_statement = generate_supporting_statement(cv_text, &job.description, client);
+
+                    update_user_request_count(&pool, &telegram_id).await.unwrap_or_else(|e| {
+                        println!("Error updating user request count: {}", e);
+                    });
+
+
+                    // let perssonalised_statement = generate_supporting_statement(cv_text, &job.description, client);
                 }
 
-                if let Some(cv_text) = user.cv_text {
+                if let Some(cv_text) = &user.cv_text {
                     if !cv_text.is_empty() {
+
+                        // check limits before proceeding with job matching
+
+                        if !can_user_proceed(&user).await {
+                        bot.send_message(
+                            msg.chat.id,
+                            "⚠️ You've reached your daily request limit. Please try again tomorrow or consider upgrading your plan."
+                        ).await?;
+                        return Ok(());
+                    }
+
                         bot.send_message(
                             msg.chat.id,
                             "🔍 Finding jobs based on your CV...."
@@ -131,9 +196,9 @@ pub async fn run_bot(pool: PgPool, client: Client) {
 
                         if let Some(cv_embedding) = user.cv_embedding {
                             // println!("my cv3 {}", user.cv_text.as_ref().unwrap_or(&"No CV text".to_string()));
-                            
-                              let result = match_cv_to_jobs(
-                                &cv_text,
+
+                            let result = match_cv_to_jobs(
+                                cv_text.as_str(),
                                 cv_embedding,
                                 &pool,
                                 telegram_id.as_str(),
@@ -141,6 +206,9 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                             ).await.map_err(|e| e.to_string());
                             // println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
                             send_job_results(&bot, msg.chat.id, &result).await?;
+                            update_user_request_count(&pool, &telegram_id).await.unwrap_or_else(|e| {
+                                println!("Error updating user request count: {}", e);
+                            });
                         }
                     }
                 }
@@ -149,7 +217,6 @@ pub async fn run_bot(pool: PgPool, client: Client) {
         }
     }).await;
 }
-
 
 // async fn send_job_results(
 //     bot: &Bot,
@@ -164,7 +231,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
 //                     "No matching jobs found. Try updating your CV or check back later!"
 //                 ).await?;
 //             } else {
-              
+
 //                 let mut reply = String::from("Here are some job matches for you:\n\n\n");
 //                 for (score, job) in response.jobs.iter() {
 //                     reply.push_str(&format!("• {} ({:.2})\n{}\n\n\n", job.title, score, job.link));
@@ -190,11 +257,10 @@ pub async fn run_bot(pool: PgPool, client: Client) {
 //     Ok(())
 // }
 
-
 async fn send_job_results(
     bot: &Bot,
     chat_id: ChatId,
-    result: &Result<crate::controllers::handlers::job_matching::MatchResponse, String>,
+    result: &Result<crate::controllers::handlers::job_matching::MatchResponse, String>
 ) -> Result<(), teloxide::RequestError> {
     match result {
         Ok(response) => {
@@ -202,9 +268,8 @@ async fn send_job_results(
             if response.jobs.is_empty() {
                 bot.send_message(
                     chat_id,
-                    "No matching jobs found. Try updating your CV or check back later!",
-                )
-                .await?;
+                    "No matching jobs found. Try updating your CV or check back later!"
+                ).await?;
                 return Ok(());
             }
 
@@ -215,12 +280,7 @@ async fn send_job_results(
             let mut current = String::from("Here are some job matches for you:\n\n");
 
             for (score, job) in &response.jobs {
-                let entry = format!(
-                    "• {} ({:.2})\n{}\n\n",
-                    job.title,
-                    score,
-                    job.link
-                );
+                let entry = format!("• {} ({:.2})\n{}\n\n", job.title, score, job.link);
 
                 // If adding this exceeds Telegram limit, push current chunk
                 if current.len() + entry.len() > MAX_LEN {
@@ -242,10 +302,7 @@ async fn send_job_results(
 
             // Send personalised statement separately (safer + cleaner UX)
             if let Some(statement) = &response.message {
-               
-
-                bot.send_message(chat_id, "📝 Personalised Supporting Statement:")
-                    .await?;
+                bot.send_message(chat_id, "📝 Personalised Supporting Statement:").await?;
 
                 // Chunk statement too (LLMs can be long)
                 let mut start = 0;
@@ -266,9 +323,8 @@ async fn send_job_results(
 
             bot.send_message(
                 chat_id,
-                "❌ An error occurred while processing your CV. Please try again later.",
-            )
-            .await?;
+                "❌ An error occurred while processing your CV. Please try again later."
+            ).await?;
         }
     }
 

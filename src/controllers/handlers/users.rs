@@ -13,14 +13,14 @@ pub struct User{
     pub created_at: DateTime<Utc>,
     pub state: String,
     pub subscription_status: String,
-    pub subscription_expires: Option<DateTime<Utc>>,
+    pub subscription_expires_at: Option<DateTime<Utc>>,
     pub daily_requests: i32,
-    pub last_request_date: Option<DateTime<Utc>>,
+    pub last_request_date: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug)]
 pub struct PlanLimits{
-    daily_Limit:Option<i32>,
+   pub daily_limit:Option<i32>,
 }
 pub async fn create_user(pool: &PgPool, telegram_id: &str)->Result<(), sqlx::Error>{
 
@@ -62,7 +62,7 @@ pub async fn update_user_cv(pool: &PgPool, telegram_id: &str, cv_text: &str, cli
 
 
 pub async fn get_user_by_telegram_id(pool: &PgPool, telegram_id: &str) -> Result<Option<User>, sqlx::Error>{
-    let row = sqlx::query("SELECT id, telegram_id, cv_text, cv_embedding, created_at, state, subscription_status, subscription_expires, daily_requests, last_request_date FROM users WHERE telegram_id = $1")
+    let row = sqlx::query("SELECT id, telegram_id, cv_text, cv_embedding, created_at, state, subscription_status, subscription_expires_at, daily_requests, last_request_date FROM users WHERE telegram_id = $1")
         .bind(telegram_id)
         .fetch_optional(pool)
         .await?;
@@ -79,7 +79,7 @@ pub async fn get_user_by_telegram_id(pool: &PgPool, telegram_id: &str) -> Result
             created_at: row.try_get("created_at")?,
             state: row.try_get("state")?,
             subscription_status: row.try_get("subscription_status")?,
-            subscription_expires: row.try_get("subscription_expires")?,
+            subscription_expires_at: row.try_get("subscription_expires_at")?,
             daily_requests: row.try_get("daily_requests")?,
             last_request_date: row.try_get("last_request_date")?,
 
@@ -140,17 +140,21 @@ pub async fn update_user_request_count(pool: &PgPool, telegram_id: &str) -> Resu
 }
 
 // reset daily requests daily usage
-pub async fn reset_daily_requests(pool: &PgPool, telegram_id: &str) -> Result<(), sqlx::Error>{
+pub async fn reset_daily_requests(pool: &PgPool, user: &User) -> Result<(), sqlx::Error>{
 
-    let today = Utc::now().date_naive();    
+    let today = Utc::now().date_naive();
 
-    sqlx::query(
-        "UPDATE users SET daily_requests = 0, last_request_date = $1 WHERE telegram_id = $2"
-    )
-    .bind(today)
-    .bind(telegram_id)
-    .execute(pool)
-    .await?;
+    if user.last_request_date != Some(today) {
+
+        sqlx::query(
+            "UPDATE users SET daily_requests = 0, last_request_date = $1 WHERE telegram_id = $2"
+        )
+        .bind(today)
+        .bind(&user.telegram_id)
+        .execute(pool)
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -158,10 +162,10 @@ pub async fn reset_daily_requests(pool: &PgPool, telegram_id: &str) -> Result<()
 //  None is unlimited
 pub async fn get_plan_limits(plan: &str) -> PlanLimits{
     match plan{
-        "free"=> PlanLimits{daily_Limit: Some(5)},
-        "basic"=> PlanLimits{daily_Limit: Some(15)},
-        "premium"=> PlanLimits{daily_Limit: None}, // unlimited
-        _ => PlanLimits{daily_Limit: Some(5)}, // default to free plan limits
+        "free"=> PlanLimits{daily_limit: Some(5)},
+        "basic"=> PlanLimits{daily_limit: Some(15)},
+        "premium"=> PlanLimits{daily_limit: None}, // unlimited
+        _ => PlanLimits{daily_limit: Some(5)}, // default to free plan limits
 
     }
 }
