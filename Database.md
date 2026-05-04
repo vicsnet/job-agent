@@ -43,6 +43,12 @@ CREATE TABLE users (
 );
 SELECT * FROM users LIMIT 10; 
 
+ALTER TABLE users 
+ADD COLUMN subscription_status TEXT DEFAULT 'free',
+ADD COLUMN subscription_expires_at TIMESTAMP NULL,
+ADD COLUMN daily_requests INT DEFAULT 0,
+ADD COLUMN last_request_date DATE;
+
 CREATE TABLE user_sent_jobs (
     id SERIAL PRIMARY KEY,
     telegram_id TEXT NOT NULL,

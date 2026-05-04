@@ -242,7 +242,7 @@ async fn send_job_results(
 
             // Send personalised statement separately (safer + cleaner UX)
             if let Some(statement) = &response.message {
-                println!("Generated statement: {}", statement);
+               
 
                 bot.send_message(chat_id, "📝 Personalised Supporting Statement:")
                     .await?;

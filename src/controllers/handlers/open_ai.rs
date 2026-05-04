@@ -47,7 +47,7 @@ STYLE REQUIREMENTS:
 
 OUTPUT:
 - A strong, compelling supporting statement suitable for NHS job applications
-- Ideally between 500–800 words unless specified otherwise
+- Ideally between 1100–1400 words unless specified otherwise
 
 JOB DESCRIPTION:
 {}
