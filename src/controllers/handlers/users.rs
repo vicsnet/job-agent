@@ -162,7 +162,7 @@ pub async fn reset_daily_requests(pool: &PgPool, user: &User) -> Result<(), sqlx
 //  None is unlimited
 pub async fn get_plan_limits(plan: &str) -> PlanLimits{
     match plan{
-        "free"=> PlanLimits{daily_limit: Some(5)},
+        "free"=> PlanLimits{daily_limit: Some(7)},
         "basic"=> PlanLimits{daily_limit: Some(15)},
         "premium"=> PlanLimits{daily_limit: None}, // unlimited
         _ => PlanLimits{daily_limit: Some(5)}, // default to free plan limits

@@ -24,7 +24,17 @@ pub struct Job {
 
 // ---------------- DATE PARSER ----------------
 pub fn parse_nhs_date(date_str: &str) -> Option<DateTime<Utc>> {
-    let cleaned = date_str.replace("Date posted:", "").trim().to_string();
+
+        let cleaned = date_str
+        .replace("Closing date:", "")
+        .replace("Date posted:", "")
+        .replace('\n', " ")
+        .replace('\u{00A0}', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+   
 
     let naive = NaiveDate::parse_from_str(&cleaned, "%-d %B %Y").ok()?;
 
@@ -32,6 +42,7 @@ pub fn parse_nhs_date(date_str: &str) -> Option<DateTime<Utc>> {
 }
 
 pub async fn save_job(pool: &PgPool, job: &Job) -> Result<(), sqlx::Error> {
+
     sqlx
         ::query(
             r#"
@@ -57,6 +68,13 @@ pub async fn save_job(pool: &PgPool, job: &Job) -> Result<(), sqlx::Error> {
         .bind(&job.embedding)
         .execute(pool).await?;
 
+    Ok(())
+}
+
+pub async fn delete_expired_jobs(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM jobs WHERE closing_date IS NOT NULL AND closing_date  < NOW()")
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -123,9 +141,10 @@ async fn fetch_job_description(html: &str) -> String {
     result.trim().to_string()
 }
 
-async fn fetch_job_person_specification(html: &str) -> String{
-    "hello".to_string()
-}
+// async fn fetch_job_person_specification(html: &str) -> String{
+//     "hello".to_string()
+// }
+
 // Extract the jobs from the nhs website
 pub fn extract_jobs(html: &str) -> Vec<Job> {
     let document = Html::parse_document(html);
@@ -182,8 +201,10 @@ pub fn extract_jobs(html: &str) -> Vec<Job> {
             .next()
             .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
             .unwrap_or_default();
+       
 
         let closing_datetime = parse_nhs_date(&closing_date);
+
 
         jobs.push(Job {
             id,
@@ -272,6 +293,52 @@ pub async fn fetch_all_jobs(
     Ok(all_jobs)
 }
 
+pub async fn job_fetch_scheduler(pool: &PgPool, client: &Client) {
+   
+   let keywords = vec![
+    "Nursing & Midwifery",
+    "Health Science Services",
+    "Support Services",
+    "Administrative Services",
+    "Medical & Dental",
+    "Emergency Services",
+    "Allied Health Professions",
+    "Personal Social Services",
+    "Dirctors",
+    "project management",
+    "data analysis",
+    "healthcare assistant",
+   ];
+
+   loop{
+
+    println!("Starting job fetch cycle...");
+
+    delete_expired_jobs(&pool).await.unwrap();
+
+    for keyword in &keywords {
+        println!("Fetching jobs for keyword: '{}'", keyword);
+
+        match fetch_all_jobs(keyword, client, pool).await {
+
+            Ok(jobs) => {
+                println!("Fetched {} jobs for '{}'", jobs.len(), keyword)
+            },
+            Err(e) => {
+                println!("Error fetching jobs for '{}': {}", keyword, e)
+            },
+        }
+
+        sleep(Duration::from_secs(60)).await; // Wait 1 minute before next keyword
+    }
+
+    println!("😴 Sleeping before next cycle...");
+
+    sleep(Duration::from_secs(60 * 60 * 6)).await;
+   }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +355,13 @@ mod tests {
         assert!(!jobs.is_empty(), "Should fetch some jobs");
         dbg!("Fetched {} jobs", jobs.len());
         dbg!(&jobs);
+    }
+    #[tokio::test]
+    async fn test_delete_expired_jobs() {
+        let pool = PgPool::connect(
+            "postgres://job_user:strongpassword@localhost/job_agent"
+        ).await.unwrap();
+
+        delete_expired_jobs(&pool).await.unwrap();
     }
 }
