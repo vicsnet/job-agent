@@ -20,6 +20,7 @@ CREATE TABLE jobs (
     closing_date DATE,
     link TEXT NOT NULL,
     description TEXT,
+    embedding FLOAT[],
 
     last_seen_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
@@ -39,8 +40,13 @@ CREATE TABLE users (
     telegram_id TEXT UNIQUE NOT NULL,
     cv_text TEXT,
     cv_embedding FLOAT8[],
-    created_at TIMESTAMP DEFAULT NOW()
+    subscription_status TEXT DEFAULT 'free',
+    created_at TIMESTAMP DEFAULT NOW(),
+    subscription_expires_at TIMESTAMP NULL,
+    daily_requests INT DEFAULT 0,
+    last_request_date DATE
 );
+
 SELECT * FROM users LIMIT 10; 
 
 ALTER TABLE users 

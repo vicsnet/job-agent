@@ -1,0 +1,36 @@
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    # environment:
+    #   DATABASE_URL: postgres://job_user:strongpassword@db:5432/job_user
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+
+  db:
+    image: postgres:16
+    env_file:
+      - .env
+    # environment:
+    #   POSTGRES_USER: job_user
+    #   POSTGRES_PASSWORD: strongpassword
+    #   POSTGRES_DB: job_user
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U job_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

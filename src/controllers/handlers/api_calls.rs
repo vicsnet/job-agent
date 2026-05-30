@@ -15,8 +15,8 @@ pub struct Job {
     pub organisation: String,
     pub location: String,
     pub salary: String,
-    pub posted_datetime: Option<DateTime<Utc>>,
-    pub closing_date: Option<DateTime<Utc>>,
+    pub posted_datetime: Option<chrono::NaiveDate>,
+    pub closing_date: Option<chrono::NaiveDate>,
     pub link: String,
     pub description: String,
     pub embedding: Option<Vec<f32>>,
@@ -24,8 +24,7 @@ pub struct Job {
 
 // ---------------- DATE PARSER ----------------
 pub fn parse_nhs_date(date_str: &str) -> Option<DateTime<Utc>> {
-
-        let cleaned = date_str
+    let cleaned = date_str
         .replace("Closing date:", "")
         .replace("Date posted:", "")
         .replace('\n', " ")
@@ -34,11 +33,23 @@ pub fn parse_nhs_date(date_str: &str) -> Option<DateTime<Utc>> {
         .collect::<Vec<_>>()
         .join(" ");
 
-   
+    NaiveDate::parse_from_str(&cleaned, "%d %B %Y")
+        .ok()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+        .map(|naive| DateTime::<Utc>::from_utc(naive, Utc))
+}
 
-    let naive = NaiveDate::parse_from_str(&cleaned, "%-d %B %Y").ok()?;
+pub fn parse_nhs_date_naive(date_str: &str) -> Option<NaiveDate> {
+    let cleaned = date_str
+        .replace("Closing date:", "")
+        .replace("Date posted:", "")
+        .replace('\n', " ")
+        .replace('\u{00A0}', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
 
-    Some(Utc.from_utc_datetime(&naive.and_hms_opt(0, 0, 0)?))
+    NaiveDate::parse_from_str(&cleaned, "%d %B %Y").ok()
 }
 
 pub async fn save_job(pool: &PgPool, job: &Job) -> Result<(), sqlx::Error> {
@@ -194,30 +205,28 @@ pub fn extract_jobs(html: &str) -> Vec<Job> {
             .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
             .unwrap_or_default();
 
-        let posted_datetime = parse_nhs_date(&posted_raw);
+        let posted_datetime = parse_nhs_date_naive(&posted_raw);
 
-        let closing_date = job
-            .select(&closing_selector)
-            .next()
-            .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
-            .unwrap_or_default();
-       
+    let closing_date_str = job
+        .select(&closing_selector)
+        .next()
+        .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
+        .unwrap_or_default();
 
-        let closing_datetime = parse_nhs_date(&closing_date);
+    let closing_date = parse_nhs_date_naive(&closing_date_str);
 
-
-        jobs.push(Job {
-            id,
-            title,
-            organisation,
-            location,
-            salary,
-            posted_datetime,
-            closing_date: closing_datetime,
-            link,
-            description: "".to_string(),
-            embedding: None,
-        });
+    jobs.push(Job {
+        id,
+        title,
+        organisation,
+        location,
+        salary,
+        posted_datetime,
+        closing_date,
+        link,
+        description: "".to_string(),
+        embedding: None,
+    });
     }
 
     jobs
@@ -304,7 +313,7 @@ pub async fn job_fetch_scheduler(pool: &PgPool, client: &Client) {
     "Emergency Services",
     "Allied Health Professions",
     "Personal Social Services",
-    "Dirctors",
+    "Directors",
     "project management",
     "data analysis",
     "healthcare assistant",
@@ -343,12 +352,17 @@ pub async fn job_fetch_scheduler(pool: &PgPool, client: &Client) {
 mod tests {
     use super::*;
     use reqwest::Client;
+use sqlx::database;
 
     #[tokio::test]
     async fn test_fetch_jobs() {
+        dotenvy::dotenv().ok();
+
         let client = Client::new();
+
+        let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
         let pool = PgPool::connect(
-            "postgres://job_user:strongpassword@localhost/job_agent"
+            &database_url
         ).await.unwrap();
 
         let jobs = fetch_all_jobs("project management", &client, &pool).await.unwrap();
@@ -358,8 +372,14 @@ mod tests {
     }
     #[tokio::test]
     async fn test_delete_expired_jobs() {
+        dotenvy::dotenv().ok();
+        let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
+
+         let pool = PgPool::connect(
+            &database_url
+        ).await.unwrap();
         let pool = PgPool::connect(
-            "postgres://job_user:strongpassword@localhost/job_agent"
+            &database_url
         ).await.unwrap();
 
         delete_expired_jobs(&pool).await.unwrap();

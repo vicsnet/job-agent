@@ -1,4 +1,5 @@
-use teloxide::{ prelude::* };
+use teloxide::{ prelude::*, };
+use teloxide::types::{KeyboardButton, KeyboardMarkup, BotCommand};
 use dotenvy::dotenv;
 use crate::controllers::handlers::{ job_matching::match_cv_to_jobs };
 use crate::controllers::embedding::text_to_vec::get_embeddings;
@@ -36,6 +37,14 @@ pub async fn run_bot(pool: PgPool, client: Client) {
 
     let token = std::env::var("BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set");
     let bot = Bot::new(token);
+
+    bot.set_my_commands(vec![
+    BotCommand::new("start", "Start the bot"),
+    BotCommand::new("update_cv", "Update your CV"),
+])
+.await
+.expect("Failed to set commands");
+
 
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let pool = pool.clone();
@@ -111,6 +120,14 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                                 println!("Error updating user state: {}", e);
                             }
                         );
+
+                        let keyboard = KeyboardMarkup::new(
+                            vec![
+                                vec![KeyboardButton::new("📄 Upload CV")],
+                                vec![KeyboardButton::new("❓ Help")]
+                            ]
+                        ).resize_keyboard();
+
                         bot.send_message(msg.chat.id, "👋 Send me your resume").await?;
                     }
 
@@ -172,22 +189,20 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                         println!("Error updating user request count: {}", e);
                     });
 
-
                     // let perssonalised_statement = generate_supporting_statement(cv_text, &job.description, client);
                 }
 
                 if let Some(cv_text) = &user.cv_text {
                     if !cv_text.is_empty() {
-
                         // check limits before proceeding with job matching
 
                         if !can_user_proceed(&user).await {
-                        bot.send_message(
-                            msg.chat.id,
-                            "⚠️ You've reached your daily request limit. Please try again tomorrow or consider upgrading your plan."
-                        ).await?;
-                        return Ok(());
-                    }
+                            bot.send_message(
+                                msg.chat.id,
+                                "⚠️ You've reached your daily request limit. Please try again tomorrow or consider upgrading your plan."
+                            ).await?;
+                            return Ok(());
+                        }
 
                         bot.send_message(
                             msg.chat.id,
@@ -206,9 +221,11 @@ pub async fn run_bot(pool: PgPool, client: Client) {
                             ).await.map_err(|e| e.to_string());
                             // println!("supporting statement: {}", result.as_ref().unwrap().message.as_ref().unwrap_or(&"No message".to_string()));
                             send_job_results(&bot, msg.chat.id, &result).await?;
-                            update_user_request_count(&pool, &telegram_id).await.unwrap_or_else(|e| {
-                                println!("Error updating user request count: {}", e);
-                            });
+                            update_user_request_count(&pool, &telegram_id).await.unwrap_or_else(
+                                |e| {
+                                    println!("Error updating user request count: {}", e);
+                                }
+                            );
                         }
                     }
                 }
@@ -217,45 +234,6 @@ pub async fn run_bot(pool: PgPool, client: Client) {
         }
     }).await;
 }
-
-// async fn send_job_results(
-//     bot: &Bot,
-//     chat_id: ChatId,
-//     result: &Result<crate::controllers::handlers::job_matching::MatchResponse, String>
-// ) -> Result<(), teloxide::RequestError> {
-//     match result {
-//         Ok(response) => {
-//             if response.jobs.is_empty() {
-//                 bot.send_message(
-//                     chat_id,
-//                     "No matching jobs found. Try updating your CV or check back later!"
-//                 ).await?;
-//             } else {
-
-//                 let mut reply = String::from("Here are some job matches for you:\n\n\n");
-//                 for (score, job) in response.jobs.iter() {
-//                     reply.push_str(&format!("• {} ({:.2})\n{}\n\n\n", job.title, score, job.link));
-//                 }
-//                 if let Some(message) = &response.message {
-//                     println!("{}", message);
-//                     reply.push_str(&format!("Personalised Statement:\n{}\n", message));
-//                 }
-//                 // reply.push_str(&format!("\n\n{}", response.message.as_ref().unwrap_or(&"No message".to_string())));
-
-//                 //   println!("{}", response.message.as_ref().unwrap_or(&"No message".to_string()));
-//                 bot.send_message(chat_id, reply).await?;
-//             }
-//         }
-//         Err(_) => {
-//             bot.send_message(
-//                 chat_id,
-//                 "❌ An error occurred while processing your CV. Please try again later."
-//             ).await?;
-//         }
-//     }
-
-//     Ok(())
-// }
 
 async fn send_job_results(
     bot: &Bot,

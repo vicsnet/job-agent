@@ -13,9 +13,10 @@ use controllers::handlers::api_calls::job_fetch_scheduler;
 async fn main() {
     // println!("Hello, world!");
     dotenv().ok();
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
 
     let pool = PgPool::connect(
-            "postgres://job_user:strongpassword@localhost/job_agent"
+            &database_url
         ).await.unwrap();
 
     let client = Client::new();

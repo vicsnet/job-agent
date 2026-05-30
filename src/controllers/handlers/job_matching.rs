@@ -106,8 +106,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_match_cv_to_jobs() {
+        dotenvy::dotenv().ok();
+            let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
         let pool = PgPool::connect(
-            "postgres://job_user:strongpassword@localhost/job_agent"
+            &database_url
         ).await.unwrap();
         let client = Client::new();
 

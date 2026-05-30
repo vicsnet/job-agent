@@ -145,11 +145,12 @@ pub async fn reset_daily_requests(pool: &PgPool, user: &User) -> Result<(), sqlx
     let today = Utc::now().date_naive();
 
     if user.last_request_date != Some(today) {
+        let now = Utc::now();
 
         sqlx::query(
             "UPDATE users SET daily_requests = 0, last_request_date = $1 WHERE telegram_id = $2"
         )
-        .bind(today)
+        .bind(now)
         .bind(&user.telegram_id)
         .execute(pool)
         .await?;
