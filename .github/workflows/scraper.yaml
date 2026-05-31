@@ -1,0 +1,30 @@
+name: Job Scraper
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # runs every 6 hours
+  workflow_dispatch:         # allows manual trigger from GitHub
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPEN_API_KEY: ${{ secrets.OPEN_API_KEY }}
+        run: cargo run --bin scraper --release
