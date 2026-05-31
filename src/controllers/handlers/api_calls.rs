@@ -1,5 +1,5 @@
 use reqwest::Client;
-use serde::{ Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 
 use scraper::{ Html, Selector, ElementRef };
 use chrono::{ NaiveDate, DateTime, Utc, TimeZone };
@@ -53,7 +53,6 @@ pub fn parse_nhs_date_naive(date_str: &str) -> Option<NaiveDate> {
 }
 
 pub async fn save_job(pool: &PgPool, job: &Job) -> Result<(), sqlx::Error> {
-
     sqlx
         ::query(
             r#"
@@ -83,9 +82,9 @@ pub async fn save_job(pool: &PgPool, job: &Job) -> Result<(), sqlx::Error> {
 }
 
 pub async fn delete_expired_jobs(pool: &PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM jobs WHERE closing_date IS NOT NULL AND closing_date  < NOW()")
-        .execute(pool)
-        .await?;
+    sqlx
+        ::query("DELETE FROM jobs WHERE closing_date IS NOT NULL AND closing_date  < NOW()")
+        .execute(pool).await?;
     Ok(())
 }
 
@@ -93,9 +92,17 @@ pub async fn delete_expired_jobs(pool: &PgPool) -> Result<(), sqlx::Error> {
 pub async fn fetch_jobs(client: &Client, url: &str) -> Result<String, Box<dyn std::error::Error>> {
     let response = client
         .get(url)
-        .header("User-Agent", "Mozilla/5.0 (compatible; JobAgent/1.0)")
-        .header("Accept", "text/html")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        )
         .header("Accept-Language", "en-GB,en;q=0.9")
+        .header("Connection", "keep-alive")
+        .header("Upgrade-Insecure-Requests", "1")
         .send().await?;
 
     let status = response.status();
@@ -207,26 +214,26 @@ pub fn extract_jobs(html: &str) -> Vec<Job> {
 
         let posted_datetime = parse_nhs_date_naive(&posted_raw);
 
-    let closing_date_str = job
-        .select(&closing_selector)
-        .next()
-        .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
-        .unwrap_or_default();
+        let closing_date_str = job
+            .select(&closing_selector)
+            .next()
+            .map(|el| el.text().collect::<Vec<_>>().join("").trim().to_string())
+            .unwrap_or_default();
 
-    let closing_date = parse_nhs_date_naive(&closing_date_str);
+        let closing_date = parse_nhs_date_naive(&closing_date_str);
 
-    jobs.push(Job {
-        id,
-        title,
-        organisation,
-        location,
-        salary,
-        posted_datetime,
-        closing_date,
-        link,
-        description: "".to_string(),
-        embedding: None,
-    });
+        jobs.push(Job {
+            id,
+            title,
+            organisation,
+            location,
+            salary,
+            posted_datetime,
+            closing_date,
+            link,
+            description: "".to_string(),
+            embedding: None,
+        });
     }
 
     jobs
@@ -248,6 +255,8 @@ pub async fn fetch_all_jobs(
         println!("Fetching page {}: {}", page, paged_url);
 
         let html = fetch_jobs(client, &paged_url).await?;
+// println!("HTML preview: {}", &html[..500.min(html.len())]);
+
         let jobs = extract_jobs(&html);
 
         if jobs.is_empty() {
@@ -264,7 +273,6 @@ pub async fn fetch_all_jobs(
 
             // getting description
             let description = fetch_job_description(&desc_html).await;
-         
 
             job.description = description;
 
@@ -297,62 +305,58 @@ pub async fn fetch_all_jobs(
             break;
         }
 
-        sleep(Duration::from_millis(500)).await;
+        sleep(Duration::from_secs(5)).await;
     }
     Ok(all_jobs)
 }
 
 pub async fn job_fetch_scheduler(pool: &PgPool, client: &Client) {
-   
-   let keywords = vec![
-    "Nursing & Midwifery",
-    "Health Science Services",
-    "Support Services",
-    "Administrative Services",
-    "Medical & Dental",
-    "Emergency Services",
-    "Allied Health Professions",
-    "Personal Social Services",
-    "Directors",
-    "project management",
-    "data analysis",
-    "healthcare assistant",
-   ];
+    let keywords = vec![
+        "Nursing & Midwifery",
+        "Health Science Services",
+        "Support Services",
+        "Administrative Services",
+        "Medical & Dental",
+        "Emergency Services",
+        "Allied Health Professions",
+        "Personal Social Services",
+        "Directors",
+        "project management",
+        "data analysis",
+        "healthcare assistant"
+    ];
 
-   loop{
+    loop {
+        println!("Starting job fetch cycle...");
 
-    println!("Starting job fetch cycle...");
+        delete_expired_jobs(&pool).await.unwrap();
 
-    delete_expired_jobs(&pool).await.unwrap();
+        for keyword in &keywords {
+            println!("Fetching jobs for keyword: '{}'", keyword);
 
-    for keyword in &keywords {
-        println!("Fetching jobs for keyword: '{}'", keyword);
+            match fetch_all_jobs(keyword, client, pool).await {
+                Ok(jobs) => {
+                    println!("Fetched {} jobs for '{}'", jobs.len(), keyword);
+                }
+                Err(e) => {
+                    println!("Error fetching jobs for '{}': {}", keyword, e);
+                }
+            }
 
-        match fetch_all_jobs(keyword, client, pool).await {
-
-            Ok(jobs) => {
-                println!("Fetched {} jobs for '{}'", jobs.len(), keyword)
-            },
-            Err(e) => {
-                println!("Error fetching jobs for '{}': {}", keyword, e)
-            },
+            sleep(Duration::from_secs(60)).await; // Wait 1 minute before next keyword
         }
 
-        sleep(Duration::from_secs(60)).await; // Wait 1 minute before next keyword
+        println!("😴 Sleeping before next cycle...");
+
+        sleep(Duration::from_secs(60 * 60 * 6)).await;
     }
-
-    println!("😴 Sleeping before next cycle...");
-
-    sleep(Duration::from_secs(60 * 60 * 6)).await;
-   }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use reqwest::Client;
-use sqlx::database;
+    use sqlx::database;
 
     #[tokio::test]
     async fn test_fetch_jobs() {
@@ -360,10 +364,10 @@ use sqlx::database;
 
         let client = Client::new();
 
-        let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
-        let pool = PgPool::connect(
-            &database_url
-        ).await.unwrap();
+        let database_url = std::env
+            ::var("DATABASE_URL")
+            .expect("DATABASE_URL must be set in .env file");
+        let pool = PgPool::connect(&database_url).await.unwrap();
 
         let jobs = fetch_all_jobs("project management", &client, &pool).await.unwrap();
         assert!(!jobs.is_empty(), "Should fetch some jobs");
@@ -373,14 +377,12 @@ use sqlx::database;
     #[tokio::test]
     async fn test_delete_expired_jobs() {
         dotenvy::dotenv().ok();
-        let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env file");
+        let database_url = std::env
+            ::var("DATABASE_URL")
+            .expect("DATABASE_URL must be set in .env file");
 
-         let pool = PgPool::connect(
-            &database_url
-        ).await.unwrap();
-        let pool = PgPool::connect(
-            &database_url
-        ).await.unwrap();
+        let pool = PgPool::connect(&database_url).await.unwrap();
+        let pool = PgPool::connect(&database_url).await.unwrap();
 
         delete_expired_jobs(&pool).await.unwrap();
     }
