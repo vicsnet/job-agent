@@ -3,6 +3,15 @@ name = "job-agent"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "scraper"
+path = "src/bin/scraper.rs"
+
+[[bin]]
+name = "job-agent"
+path = "src/main.rs"
+
+
 [dependencies]
 actix-web= "4"
 serde = { version = "1.0", features = ["derive"] }
