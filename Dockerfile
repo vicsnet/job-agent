@@ -4,13 +4,18 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 
-RUN mkdir src && echo "fn main() {}" > src/main.rs 
+# ← Create both fake files
+RUN mkdir -p src/bin && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > src/bin/scraper.rs
+
+
 RUN cargo build --release
 RUN rm -rf src
 
 COPY src ./src
 
-RUN touch src/main.rs
+RUN touch src/main.rs && touch src/bin/scraper.rs
 RUN cargo build --release
 
 
@@ -21,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/job-agent .
+
 
 EXPOSE 8080
 CMD ["./job-agent"]
