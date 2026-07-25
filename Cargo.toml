@@ -28,3 +28,5 @@ chrono = "0.4.44"
 sqlx = {    version = "0.8.6", features = ["postgres", "runtime-tokio", "chrono", "macros"] }
 teloxide = {    version = "0.17.0", features = ["full"] }
 anyhow = "1.0"
+bcrypt = "0.19.2"
+jsonwebtoken = "11.0.0"
