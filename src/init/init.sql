@@ -40,5 +40,5 @@ CREATE TABLE IF NOT EXITS login(
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL UNIQUE, 
     password_hash TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
 )

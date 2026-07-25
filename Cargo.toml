@@ -29,4 +29,5 @@ sqlx = {    version = "0.8.6", features = ["postgres", "runtime-tokio", "chrono"
 teloxide = {    version = "0.17.0", features = ["full"] }
 anyhow = "1.0"
 bcrypt = "0.19.2"
-jsonwebtoken = "11.0.0"
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+validator = {"0.20.0", features = ["derive"]}

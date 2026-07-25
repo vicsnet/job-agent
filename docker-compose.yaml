@@ -5,7 +5,7 @@ services:
     ports:
       - "8080:8080"
     env_file:
-      - .env
+      - .env.production
     # environment:
     #   DATABASE_URL: postgres://job_user:strongpassword@db:5432/job_user
     depends_on:
