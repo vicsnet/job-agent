@@ -30,4 +30,4 @@ teloxide = {    version = "0.17.0", features = ["full"] }
 anyhow = "1.0"
 bcrypt = "0.19.2"
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
-validator = {"0.20.0", features = ["derive"]}
+validator = {version = "0.20.0", features = ["derive"]}
