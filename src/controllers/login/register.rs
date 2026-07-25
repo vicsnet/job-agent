@@ -50,7 +50,7 @@ async fn create_token(
 pub async fn register_user(
     pool: &PgPool,
     body: RegisterRequest
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     if body.password != body.confirm_password {
         return Err("Passwords do not match".into());
     }
@@ -83,6 +83,7 @@ pub async fn register_user(
         .bind(&password_hash)
         .execute(pool).await?;
 
-    // Placeholder for the actual implementation
-    Ok(())
+    let token = create_token(user_id, &body.email).await?;
+
+    Ok(token)
 }
