@@ -39,7 +39,7 @@ pub async fn run_bot(pool: PgPool, client: Client) {
     let bot = Bot::new(token);
 
     bot.set_my_commands(vec![
-    BotCommand::new("start", "Start the bot"),
+    BotCommand::new("start", "find Job"),
     BotCommand::new("update_cv", "Update your CV"),
 ])
 .await

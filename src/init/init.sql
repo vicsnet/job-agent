@@ -35,3 +35,10 @@ CREATE TABLE IF NOT EXISTS user_sent_jobs (
     UNIQUE(telegram_id, job_id)
 );
 
+CREATE TABLE IF NOT EXITS login(
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL UNIQUE, 
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+)
