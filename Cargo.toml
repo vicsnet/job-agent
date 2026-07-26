@@ -34,3 +34,4 @@ validator = {version = "0.20.0", features = ["derive"]}
 actix-multipart = "0.8.0"
 pdf-extract = "0.12.0"
 docx-rust = "0.1.11"
+futures-util = "0.3.33"
