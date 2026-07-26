@@ -31,3 +31,4 @@ anyhow = "1.0"
 bcrypt = "0.19.2"
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 validator = {version = "0.20.0", features = ["derive"]}
+actix-multipart = "0.8.0"
