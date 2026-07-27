@@ -1,4 +1,4 @@
-use actix_web::{ Responder, HttpRequest, HttpResponse };
+use actix_web::{ web, Responder, HttpRequest, HttpResponse };
 use reqwest::Client;
 use sqlx::{ PgPool };
 use actix_multipart::Multipart;
@@ -11,13 +11,14 @@ use futures_util::StreamExt;
 const MAX_SIZE: usize = 5 * 1024 * 1024;
 pub async fn upload_cv(
     req: HttpRequest,
-    client: &Client,
-    pool: &PgPool,
+    client: web::Data<Client>,
+    pool: web::Data<PgPool>,
     mut payload: Multipart
 ) -> impl Responder {
     let user_id = match user_id_from_request(&req) {
         Some(id) => id,
         None => {
+         
             return HttpResponse::Unauthorized().json(json!({"error": "Missing or invalid token"}));
         }
     };
@@ -27,7 +28,8 @@ pub async fn upload_cv(
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(f) => f,
-            Err(_) => {
+            Err(e) => {
+                   eprintln!("multipart eror: {:?}", e);
                 return HttpResponse::BadRequest().json(json!({"error": "Malformed upload"}));
             }
         };
@@ -49,7 +51,7 @@ pub async fn upload_cv(
         }
     }
     if bytes.is_empty() {
-        return HttpResponse::BadRequest().json(json!({"error": "File must be a PDF"}));
+        return HttpResponse::BadRequest().json(json!({"error": "File is empty"}));
     }
     if !bytes.starts_with(b"%PDF") {
         return HttpResponse::BadRequest().json(json!({"error": "File must be a PDF"}));

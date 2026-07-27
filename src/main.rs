@@ -9,6 +9,7 @@ use std::env;
 use actix_web::{ web, App, HttpServer };
 // use controllers::handlers::api_calls::job_fetch_scheduler;
 use controllers::handlers::auth_handlers::auth::{ login, register };
+use controllers::handlers::update_handlers::cv_handler::upload_cv;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -33,12 +34,14 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(client.clone()))
             .service(
                 web
                     ::scope("/auth")
                     .route("/register", web::post().to(register))
                     .route("/login", web::post().to(login))
             )
+            .service(web::scope("/profile").route("/cv", web::post().to(upload_cv)))
     })
         .bind(("127.0.0.1", 8080))?
         .run().await
